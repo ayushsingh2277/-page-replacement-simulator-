@@ -1,33 +1,3 @@
-// #ifndef ALGORITHMS_H
-// #define ALGORITHMS_H
-
-// #define MAX_FRAMES 10
-// #define MAX_PAGES 100
-
-// typedef struct {
-//     int step;
-//     int page;
-//     int frames[MAX_FRAMES];
-//     int frame_count;
-//     int is_fault;
-//     int replaced;
-// } Step;
-
-// typedef struct {
-//     char algorithm[16];
-//     Step steps[MAX_PAGES];
-//     int total_steps;
-//     int hits;
-//     int faults;
-//     float hit_rate;
-// } Result;
-
-// Result run_fifo(int *ref, int n, int frames);
-// Result run_lru(int *ref, int n, int frames);
-// Result run_optimal(int *ref, int n, int frames);
-
-// #endif
-
 
 #ifndef ALGORITHMS_H 
 #define ALGORITHMS_H 
