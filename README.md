@@ -1,181 +1,144 @@
 # Page Replacement Algorithm Simulator
-
-> A modular C-based simulator for **FIFO**, **LRU**, and **Optimal** page replacement algorithms — featuring both a CLI version and a new GUI web-based interface.
-
----
-
-## Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [CLI Version (Original)](#cli-version-original)
-3. [Project Structure](#project-structure)
-4. [How to Compile & Run (CLI)](#how-to-compile--run-cli)
-5. [GUI Version (Enhancement)](#gui-version-enhancement)
-6. [Team & Contributions](#team--contributions)
-
----
-
-## Project Overview
-
-This project simulates three classic **page replacement algorithms** used in Operating Systems virtual memory management:
-
-| Algorithm | Strategy |
-|-----------|----------|
-| **FIFO** | Replace the page that has been in memory the longest |
-| **LRU** | Replace the page that was least recently accessed |
-| **Optimal** | Replace the page that won't be used for the longest time |
-
-The simulator accepts a **page reference string** and a **frame count**, then outputs step-by-step simulation results including total page faults and hit rate.
-
----
-
-## CLI Version (Original)
-
-The original project is implemented in modular C with a clean separation of concerns:
+## OS Project — C + Python + HTML/CSS/JS
 
 ```
-module1_algorithms/    — Core algorithm logic (FIFO, LRU, Optimal)
-module2_display/       — Output formatting and table display
-module3_ui/            — User input handling (terminal UI)
-main.c                 — Entry point
-Makefile               — Build configuration
-```
-
-> ⚠️ **These files are not modified.** All original code, commit history, and team contributions are preserved exactly as-is.
-
----
-
-## Project Structure
-
-```
-page-replacement-simulator/
+page_replacement_simulator/
+├── c_core/
+│   ├── page_replacement.h      ← Header: data structures & function prototypes
+│   ├── page_replacement.c      ← Core logic: FIFO, LRU, Optimal algorithms
+│   └── Makefile                ← Build the standalone C binary
 │
-├── module1_algorithms/     ← (original, untouched)
-├── module2_display/        ← (original, untouched)
-├── module3_ui/             ← (original, untouched)
-├── main.c                  ← (original, untouched)
-├── Makefile                ← (original, untouched)
+├── python_server/
+│   ├── page_server.py          ← Flask REST API server (bridges C ↔ Frontend)
+│   └── requirements.txt        ← Python dependencies
 │
-├── gui/                    ← NEW: Web-based frontend
-│   ├── index.html          — Main HTML page
-│   ├── style.css           — Dark modern styling
-│   └── script.js           — Frontend logic & API calls
-│
-├── backend/                ← NEW: Single-file C for GUI integration
-│   └── main.c              — FIFO + LRU + Optimal in one file
-│
-├── server.js               ← NEW: Node.js bridge server
-└── README.md               ← This file
+└── web/
+    └── index.html              ← Full HTML/CSS/JS frontend (standalone)
 ```
 
 ---
 
-## How to Compile & Run (CLI)
+## How to Run
 
+### Option A — Just open the frontend (quickest)
 ```bash
-# From the project root
-make
+cd web/
+open index.html          # macOS
+xdg-open index.html      # Linux
+# Or simply double-click index.html in your file manager
+```
+The simulator runs entirely in the browser. The JS faithfully mirrors the C algorithms.
 
-# Run the CLI simulator
-./simulator
+---
+
+### Option B — Run the C binary directly (console output)
+```bash
+cd c_core/
+make          # Compile
+make run      # Run with built-in test case
+```
+
+You can edit `main()` in `page_replacement.c` to change the reference string and frame count.
+
+---
+
+### Option C — Run the Python Flask server + frontend
+```bash
+# Install Python dependencies
+cd python_server/
+pip install -r requirements.txt
+
+# Start the server
+python page_server.py
+
+# Then open the frontend (it will auto-connect to the server)
+open ../web/index.html
+```
+
+Server runs at: `http://localhost:5000`
+API endpoint: `POST /simulate`
+
+**Example API call:**
+```bash
+curl -X POST http://localhost:5000/simulate \
+  -H "Content-Type: application/json" \
+  -d '{"ref_string":[7,0,1,2,0,3,0,4,2,3],"frames":3,"algorithms":["FIFO","LRU","Optimal"]}'
 ```
 
 ---
 
-## GUI Version (Enhancement)
+## Algorithms Implemented
 
-The GUI is a **new addition** to this project. It provides a browser-based interface for the same algorithms without touching any existing code.
+### FIFO — First In, First Out
+- Tracks insertion order using a queue
+- Evicts the page that has been in memory the longest
+- Simple but suffers from Bélády's Anomaly
 
-### Architecture
+### LRU — Least Recently Used
+- Tracks timestamp of last access for each frame
+- Evicts the page not used for the longest time
+- Better approximation to optimal; no Bélády's Anomaly
 
-```
-Browser (HTML/CSS/JS)
-       ↓  POST /simulate  (JSON)
-  Node.js server.js
-       ↓  exec()
-  backend/simulator  (compiled C)
-       ↓  structured text output
-  server.js parses output
-       ↓  JSON response
-  Browser renders results
-```
+### Optimal (OPT)
+- Looks ahead in the reference string
+- Evicts the page whose next use is farthest in the future
+- Theoretical minimum page faults; impossible in real systems
+- Used as a benchmark to evaluate other algorithms
 
-### What's New
+---
 
-- `backend/main.c` — A **single-file** standalone C implementation that merges all three algorithms. This was written specifically for easy integration with the web backend. The original modular code is unchanged.
-- `server.js` — A lightweight Node.js Express server that receives requests from the frontend, calls the C binary as a subprocess, and returns parsed JSON.
-- `gui/` — A dark-themed, fully responsive web UI.
+## Data Structures (C)
 
-### Setup Instructions
+```c
+typedef struct {
+    int page_ref;               // Page referenced at this step
+    int frame_state[MAX_FRAMES];// Snapshot of all frames
+    int frame_count;            // Number of frames
+    int is_fault;               // 1 = page fault, 0 = hit
+    int replaced_page;          // Evicted page (EMPTY if none)
+} StepInfo;
 
-#### Step 1 — Compile the C backend
-
-```bash
-# From the project root
-gcc -o backend/simulator backend/main.c -lm
-
-# On Windows (MinGW):
-gcc -o backend/simulator.exe backend/main.c
-```
-
-#### Step 2 — Install Node.js dependencies
-
-```bash
-npm install express cors
-```
-
-#### Step 3 — Start the server
-
-```bash
-node server.js
-```
-
-You should see:
-```
-╔════════════════════════════════════════╗
-║   Page Replacement Simulator Server   ║
-╠════════════════════════════════════════╣
-║   Running at: http://localhost:3000    ║
-╚════════════════════════════════════════╝
-```
-
-#### Step 4 — Open in browser
-
-Navigate to: **http://localhost:3000**
-
-### Using the GUI
-
-1. Enter a **page reference string** — space-separated integers, e.g. `1 2 3 4 1 2 5 1 2 3 4 5`
-2. Set the **number of frames** (1–10)
-3. Choose an algorithm: FIFO, LRU, Optimal, or **Compare All**
-4. Click **Run Simulation**
-
-The output shows:
-- Step-by-step table with each page access
-- 🟢 Green rows = Cache **HIT** (page already in memory)
-- 🔴 Red rows = Page **FAULT** (page loaded into a frame)
-- Summary: total hits, faults, and hit rate percentage
-- Comparison table (when "Compare All" is selected)
-
-### Testing the C backend directly
-
-```bash
-# FIFO with 3 frames
-./backend/simulator fifo 3 1 2 3 4 1 2 5 1 2 3 4 5
-
-# LRU with 4 frames
-./backend/simulator lru 4 1 2 3 4 5 1 2 3 4 5
-
-# Compare all algorithms
-./backend/simulator all 3 7 0 1 2 0 3 0 4 2 3 0 3 2
+typedef struct {
+    StepInfo *steps;            // Array of all steps (malloc'd)
+    int total_refs;             // Reference string length
+    int page_faults;            // Total faults
+    double hit_ratio;           // Hit percentage (0–100)
+} SimResult;
 ```
 
 ---
 
-## Team & Contributions
+## Frontend Features
 
-> All original commits from team members are preserved. The GUI enhancement was added as new files only — no existing files were modified.
+- **Interactive reference string input** with quick presets
+- **Frame count slider** (1–8 frames)
+- **Algorithm toggle** — run any combination of FIFO / LRU / Optimal
+- **Metric cards** — faults count, hit ratio bar per algorithm
+- **Bar chart** — visual comparison of fault counts
+- **Step table** — complete frame-by-frame state with fault/hit badges
+- **Analysis summary** — best algorithm, savings, optimal bound
 
 ---
 
-*This project was developed as part of an Operating Systems course. The GUI enhancement demonstrates integration between systems-level C programming and modern web technologies.*
+## Sample Output (Reference: 7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1 | Frames: 3)
+
+| Algorithm | Page Faults | Hit Ratio |
+|-----------|-------------|-----------|
+| FIFO      | 15          | 25.00%    |
+| LRU       | 12          | 40.00%    |
+| **Optimal**   | **9**       | **55.00%** |
+
+---
+
+## Technologies
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Core logic | **C (C99)** | FIFO, LRU, Optimal algorithms |
+| Server | **Python + Flask** | REST API bridge |
+| Frontend | **HTML5 + CSS3 + Vanilla JS** | UI, visualization, animation |
+| Build | **GCC + Makefile** | Compile C binary |
+
+---
+
+*Compile the C binary, open index.html, and start simulating!*
