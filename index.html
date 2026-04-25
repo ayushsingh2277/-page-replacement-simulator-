@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Page Replacement Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+/* ══════════════════════════════════════════════
+   DESIGN SYSTEM — Terminal × OS Retro-Futurism
+   ══════════════════════════════════════════════ */
+:root {
+  --bg:        #0a0d14;
+  --panel:     #0f1420;
+  --panel2:    #141b2d;
+  --border:    #1e2d4a;
+  --border2:   #2a3f66;
+  --accent:    #00d4ff;
+  --accent2:   #7c3aed;
+  --accent3:   #10b981;
+  --warn:      #f59e0b;
+  --danger:    #ef4444;
+  --text:      #e2e8f0;
+  --text2:     #94a3b8;
+  --text3:     #4a5568;
+  --fifo-c:    #f59e0b;
+  --lru-c:     #00d4ff;
+  --opt-c:     #10b981;
+  --glow:      0 0 20px rgba(0,212,255,0.15);
+  --glow2:     0 0 40px rgba(0,212,255,0.08);
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'Space Grotesk', sans-serif;
+  --r:         8px;
+  --r2:        12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scanline Overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+}
+
+/* ── Grid Background ── */
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(30,45,74,0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30,45,74,0.3) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+}
+
+/* ─────────────────────────────────────────────
+   LAYOUT
+   ───────────────────────────────────────────── */
+.wrapper { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 0 24px 80px; }
+
+/* ─────────────────────────────────────────────
+   HEADER
+   ───────────────────────────────────────────── */
+header {
+  padding: 40px 0 32px;
+  display: flex; align-items: center; gap: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 40px;
+}
+
+.logo {
+  width: 52px; height: 52px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-size: 24px;
+  box-shadow: 0 0 30px rgba(0,212,255,0.3);
+  flex-shrink: 0;
+}
+
+.header-text h1 {
+  font-family: var(--mono);
+  font-size: 1.5rem; font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+.header-text p {
+  font-size: 0.82rem; color: var(--text2);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-top: 3px;
+}
+
+.badge {
+  margin-left: auto;
+  background: rgba(0,212,255,0.08);
+  border: 1px solid rgba(0,212,255,0.2);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  letter-spacing: 0.1em;
+}
+
+/* ─────────────────────────────────────────────
+   MAIN GRID
+   ───────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 1fr; }
+}
+
+/* ─────────────────────────────────────────────
+   PANEL
+   ───────────────────────────────────────────── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+}
+
+.panel-head {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,0.02);
+}
+
+.panel-head .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+
+.panel-head h2 {
+  font-family: var(--mono);
+  font-size: 0.78rem; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text2);
+}
+
+.panel-body { padding: 20px; }
+
+/* ─────────────────────────────────────────────
+   CONTROLS
+   ───────────────────────────────────────────── */
+.form-group { margin-bottom: 20px; }
+
+label {
+  display: block;
+  font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text2);
+  margin-bottom: 8px;
+}
+
+input[type="text"], input[type="number"] {
+  width: 100%;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+}
+
+input::placeholder { color: var(--text3); }
+
+.hint {
+  font-size: 0.7rem; color: var(--text3);
+  margin-top: 5px; font-family: var(--mono);
+}
+
+/* ── Slider ── */
+.slider-row { display: flex; align-items: center; gap: 12px; }
+
+input[type="range"] {
+  flex: 1; height: 4px;
+  -webkit-appearance: none;
+  background: var(--border2);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0,212,255,0.5);
+}
+
+.slider-val {
+  font-family: var(--mono);
+  font-size: 1rem; font-weight: 700;
+  color: var(--accent);
+  min-width: 24px; text-align: center;
+}
+
+/* ── Checkboxes ── */
+.algo-checks { display: flex; flex-direction: column; gap: 10px; }
+
+.check-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.check-item:hover { background: rgba(255,255,255,0.03); }
+
+.check-item input[type="checkbox"] { display: none; }
+
+.check-box {
+  width: 18px; height: 18px; border-radius: 4px;
+  border: 2px solid var(--border2);
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  transition: all 0.15s;
+  font-size: 11px;
+}
+
+.check-item.active .check-box {
+  border-color: var(--color, var(--accent));
+  background: var(--color, var(--accent));
+  box-shadow: 0 0 8px rgba(0,212,255,0.3);
+}
+
+.check-label { font-size: 0.88rem; font-weight: 600; flex: 1; }
+.check-desc  { font-size: 0.7rem; color: var(--text3); }
+
+/* ── Quick Presets ── */
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.preset-btn {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 5px 10px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0,212,255,0.05);
+}
+
+/* ── Run Button ── */
+#runBtn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--accent), #0099cc);
+  border: none;
+  border-radius: var(--r);
+  color: #000;
+  font-family: var(--mono);
+  font-size: 0.9rem; font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: opacity 0.2s, transform 0.15s;
+  margin-top: 8px;
+}
+
+#runBtn:hover { opacity: 0.9; transform: translateY(-1px); }
+#runBtn:active { transform: translateY(0); }
+#runBtn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+#runBtn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.5s;
+}
+
+#runBtn:hover::after { transform: translateX(100%); }
+
+/* ─────────────────────────────────────────────
+   RESULTS AREA
+   ───────────────────────────────────────────── */
+.results-col { display: flex; flex-direction: column; gap: 24px; }
+
+/* ── Metric Cards ── */
+.metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+.metric-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+
+.metric-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--c, var(--accent));
+}
+
+.metric-card .alg-name {
+  font-family: var(--mono);
+  font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--c, var(--accent));
+  margin-bottom: 12px;
+}
+
+.metric-card .fault-big {
+  font-family: var(--mono);
+  font-size: 2.5rem; font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.metric-card .fault-label {
+  font-size: 0.7rem; color: var(--text3);
+  margin-top: 4px; margin-bottom: 12px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+.metric-card .hit-bar-bg {
+  height: 4px; background: var(--border2); border-radius: 2px;
+}
+
+.metric-card .hit-bar-fill {
+  height: 4px; border-radius: 2px;
+  background: var(--c, var(--accent));
+  box-shadow: 0 0 6px var(--c, var(--accent));
+  transition: width 1s cubic-bezier(.4,0,.2,1);
+  width: 0;
+}
+
+.metric-card .hit-pct {
+  font-family: var(--mono);
+  font-size: 0.75rem; color: var(--c, var(--accent));
+  margin-top: 6px;
+}
+
+/* ── Chart Panel ── */
+.chart-wrap {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 24px;
+}
+
+.chart-title {
+  font-family: var(--mono);
+  font-size: 0.72rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text2);
+  margin-bottom: 20px;
+}
+
+.bar-chart { display: flex; align-items: flex-end; gap: 20px; height: 140px; padding-bottom: 30px; position: relative; }
+
+.bar-chart::after {
+  content: '';
+  position: absolute; bottom: 29px; left: 0; right: 0;
+  height: 1px; background: var(--border);
+}
+
+.bar-group { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; }
+
+.bar {
+  width: 100%;
+  min-height: 4px;
+  border-radius: 4px 4px 0 0;
+  position: relative;
+  transition: height 0.8s cubic-bezier(.4,0,.2,1);
+  cursor: pointer;
+}
+
+.bar::after {
+  content: attr(data-val);
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.bar-name {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+/* ── Step Table ── */
+.algo-tables { display: flex; flex-direction: column; gap: 20px; }
+
+.table-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+}
+
+.table-head {
+  padding: 12px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+
+.table-head .t-algo {
+  font-family: var(--mono);
+  font-size: 0.8rem; font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.table-head .t-stats {
+  font-family: var(--mono);
+  font-size: 0.7rem; color: var(--text2);
+  display: flex; gap: 16px;
+}
+
+.table-scroll { overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+th {
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky; top: 0;
+  background: var(--panel);
+}
+
+td {
+  padding: 7px 14px;
+  border-bottom: 1px solid rgba(30,45,74,0.5);
+  white-space: nowrap;
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+td.fault   { color: var(--danger); font-weight: 700; }
+td.hit     { color: var(--accent3); }
+td.step-no { color: var(--text3); }
+
+.frame-cell {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+.frame-box {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 24px;
+  border-radius: 4px;
+  font-size: 0.75rem; font-weight: 600;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+}
+
+.frame-box.new-page {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 8px rgba(0,212,255,0.2);
+}
+
+.fault-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px;
+  font-size: 0.65rem; font-weight: 800;
+  background: rgba(239,68,68,0.15);
+  color: var(--danger);
+  border: 1px solid rgba(239,68,68,0.3);
+}
+
+.hit-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px;
+  font-size: 0.65rem; font-weight: 800;
+  background: rgba(16,185,129,0.1);
+  color: var(--accent3);
+  border: 1px solid rgba(16,185,129,0.3);
+}
+
+/* ── Ref String Display ── */
+.ref-display {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 16px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 20px;
+  min-height: 48px; align-items: center;
+}
+
+.ref-chip {
+  font-family: var(--mono);
+  font-size: 0.8rem; font-weight: 600;
+  padding: 4px 10px; border-radius: 4px;
+  background: var(--border2);
+  color: var(--text);
+  transition: all 0.3s;
+}
+
+.ref-chip.is-fault  { background: rgba(239,68,68,0.2); color: var(--danger); }
+.ref-chip.is-hit    { background: rgba(16,185,129,0.15); color: var(--accent3); }
+
+/* ── Empty State ── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 80px 20px; text-align: center;
+  color: var(--text3);
+}
+
+.empty-state .icon { font-size: 3rem; margin-bottom: 16px; opacity: 0.4; }
+.empty-state p { font-family: var(--mono); font-size: 0.82rem; }
+
+/* ── Spinner ── */
+.spinner {
+  display: none;
+  width: 20px; height: 20px;
+  border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 12px 18px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text);
+  z-index: 1000;
+  transform: translateY(120%);
+  transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+  max-width: 360px;
+}
+
+.toast.show { transform: translateY(0); }
+.toast.error { border-color: rgba(239,68,68,0.5); }
+
+/* ── Comparison Section ── */
+.compare-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.compare-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+}
+
+.compare-card .cc-label {
+  font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text3); margin-bottom: 8px;
+}
+
+.compare-card .cc-winner {
+  font-family: var(--mono); font-size: 1rem; font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.compare-card .cc-note {
+  font-size: 0.72rem; color: var(--text2);
+}
+
+/* ── Fade-in animation ── */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+.fade-in { animation: fadeIn 0.4s ease forwards; }
+
+/* ── Mode indicator ── */
+.mode-indicator {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 0.7rem; color: var(--text3);
+  padding: 4px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent3); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo">⚙️</div>
+  <div class="header-text">
+    <h1>PAGE REPLACEMENT SIMULATOR</h1>
+    <p>Operating Systems · Algorithm Analysis</p>
+  </div>
+  <div class="badge">C + JS ENGINE</div>
+</header>
+
+<!-- ── MAIN GRID ── -->
+<div class="main-grid">
+
+  <!-- ════════════════ LEFT: CONTROLS ════════════════ -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- Reference String -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="dot" style="background:var(--accent)"></div>
+        <h2>Reference String</h2>
+      </div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>Page Numbers (space or comma separated)</label>
+          <input type="text" id="refInput" placeholder="7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1" value="7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1"/>
+          <div class="hint">Pages 0–9 · Max 30 pages recommended for best display</div>
+        </div>
+
+        <div class="form-group">
+          <label>Quick Presets</label>
+          <div class="presets">
+            <button class="preset-btn" onclick="loadPreset('classic')">Classic</button>
+            <button class="preset-btn" onclick="loadPreset('belady')">Bélády</button>
+            <button class="preset-btn" onclick="loadPreset('working')">Working Set</button>
+            <button class="preset-btn" onclick="loadPreset('random')">Random</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Frame Count -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="dot" style="background:var(--accent2)"></div>
+        <h2>Frame Configuration</h2>
+      </div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>Number of Frames</label>
+          <div class="slider-row">
+            <input type="range" id="frameSlider" min="1" max="8" value="3" oninput="document.getElementById('frameVal').textContent=this.value"/>
+            <span class="slider-val" id="frameVal">3</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Algorithms -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="dot" style="background:var(--accent3)"></div>
+        <h2>Algorithms</h2>
+      </div>
+      <div class="panel-body">
+        <div class="algo-checks">
+
+          <label class="check-item active" id="chkFIFO" style="--color:var(--fifo-c)" onclick="toggleAlgo(this,'FIFO')">
+            <input type="checkbox" checked>
+            <div class="check-box">✓</div>
+            <div>
+              <div class="check-label" style="color:var(--fifo-c)">FIFO</div>
+              <div class="check-desc">First In, First Out — evicts oldest page</div>
+            </div>
+          </label>
+
+          <label class="check-item active" id="chkLRU" style="--color:var(--lru-c)" onclick="toggleAlgo(this,'LRU')">
+            <input type="checkbox" checked>
+            <div class="check-box">✓</div>
+            <div>
+              <div class="check-label" style="color:var(--lru-c)">LRU</div>
+              <div class="check-desc">Least Recently Used — evicts stalest page</div>
+            </div>
+          </label>
+
+          <label class="check-item active" id="chkOptimal" style="--color:var(--opt-c)" onclick="toggleAlgo(this,'Optimal')">
+            <input type="checkbox" checked>
+            <div class="check-box">✓</div>
+            <div>
+              <div class="check-label" style="color:var(--opt-c)">Optimal</div>
+              <div class="check-desc">OPT — evicts page used farthest in future</div>
+            </div>
+          </label>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Run -->
+    <div class="panel">
+      <div class="panel-body">
+        <button id="runBtn" onclick="runSimulation()">
+          <span id="btnText">▶  RUN SIMULATION</span>
+          <div class="spinner" id="spinner"></div>
+        </button>
+        <div style="margin-top:12px;font-size:0.7rem;color:var(--text3);font-family:var(--mono);text-align:center;">
+          Core logic: C algorithms · Rendered in JS
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════════ RIGHT: RESULTS ════════════════ -->
+  <div class="results-col" id="resultsArea">
+
+    <div class="empty-state fade-in" id="emptyState">
+      <div class="icon">🖥️</div>
+      <p>Configure parameters and run the simulation</p>
+      <p style="margin-top:8px;font-size:0.7rem">Results and step-by-step visualization will appear here</p>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ── TOAST ── -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   PAGE REPLACEMENT ALGORITHMS — JavaScript mirror of C logic
+   (Identical algorithmic behavior to the C implementation)
+   ════════════════════════════════════════════════════════ */
+
+const EMPTY = -1;
+const ALGO_COLORS = { FIFO: '#f59e0b', LRU: '#00d4ff', Optimal: '#10b981' };
+const PRESETS = {
+  classic:  [7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1],
+  belady:   [1,2,3,4,1,2,5,1,2,3,4,5],
+  working:  [1,2,3,1,2,3,1,2,3,4,5,6,1,2,3],
+  random:   null
+};
+
+let selectedAlgos = new Set(['FIFO','LRU','Optimal']);
+
+/* ── Toggle checkbox ── */
+function toggleAlgo(el, name) {
+  el.classList.toggle('active');
+  const box = el.querySelector('.check-box');
+  if (selectedAlgos.has(name)) {
+    selectedAlgos.delete(name);
+    box.textContent = '';
+  } else {
+    selectedAlgos.add(name);
+    box.textContent = '✓';
+  }
+}
+
+/* ── Load preset ── */
+function loadPreset(name) {
+  if (name === 'random') {
+    const len = 18 + Math.floor(Math.random() * 8);
+    const arr = Array.from({length: len}, () => Math.floor(Math.random() * 9));
+    document.getElementById('refInput').value = arr.join(' ');
+  } else {
+    document.getElementById('refInput').value = PRESETS[name].join(' ');
+  }
+}
+
+/* ── Parse reference string ── */
+function parseRef(str) {
+  return str.split(/[\s,]+/).map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 99);
+}
+
+/* ────────────────────────────────────────────
+   C ALGORITHM MIRRORS (JS)
+   ─────────────────────────────────────────── */
+
+function simFIFO(ref, fc) {
+  const frames = Array(fc).fill(EMPTY);
+  const queue = [];
+  const steps = [];
+  let faults = 0;
+
+  for (const page of ref) {
+    const inFrame = frames.indexOf(page) !== -1;
+    let replaced = EMPTY;
+    if (!inFrame) {
+      faults++;
+      const emptyIdx = frames.indexOf(EMPTY);
+      if (emptyIdx !== -1) {
+        frames[emptyIdx] = page;
+        queue.push(emptyIdx);
+      } else {
+        const victimIdx = queue.shift();
+        replaced = frames[victimIdx];
+        frames[victimIdx] = page;
+        queue.push(victimIdx);
+      }
+    }
+    steps.push({ page_ref: page, frame_state: [...frames], is_fault: !inFrame, replaced_page: replaced });
+  }
+  return { steps, page_faults: faults, hit_ratio: ((ref.length - faults) / ref.length * 100).toFixed(2) };
+}
+
+function simLRU(ref, fc) {
+  const frames = Array(fc).fill(EMPTY);
+  const lastUsed = Array(fc).fill(-1);
+  const steps = [];
+  let faults = 0;
+
+  for (let i = 0; i < ref.length; i++) {
+    const page = ref[i];
+    const hit = frames.indexOf(page);
+    let replaced = EMPTY;
+    if (hit !== -1) {
+      lastUsed[hit] = i;
+    } else {
+      faults++;
+      const emptyIdx = frames.indexOf(EMPTY);
+      if (emptyIdx !== -1) {
+        frames[emptyIdx] = page;
+        lastUsed[emptyIdx] = i;
+      } else {
+        let lruIdx = 0;
+        for (let f = 1; f < fc; f++) if (lastUsed[f] < lastUsed[lruIdx]) lruIdx = f;
+        replaced = frames[lruIdx];
+        frames[lruIdx] = page;
+        lastUsed[lruIdx] = i;
+      }
+    }
+    steps.push({ page_ref: page, frame_state: [...frames], is_fault: hit === -1, replaced_page: replaced });
+  }
+  return { steps, page_faults: faults, hit_ratio: ((ref.length - faults) / ref.length * 100).toFixed(2) };
+}
+
+function nextUse(ref, page, from) {
+  for (let i = from + 1; i < ref.length; i++) if (ref[i] === page) return i;
+  return Infinity;
+}
+
+function simOptimal(ref, fc) {
+  const frames = Array(fc).fill(EMPTY);
+  const steps = [];
+  let faults = 0;
+
+  for (let i = 0; i < ref.length; i++) {
+    const page = ref[i];
+    const hit = frames.indexOf(page) !== -1;
+    let replaced = EMPTY;
+    if (!hit) {
+      faults++;
+      const emptyIdx = frames.indexOf(EMPTY);
+      if (emptyIdx !== -1) {
+        frames[emptyIdx] = page;
+      } else {
+        let farthest = -1, victimIdx = 0;
+        for (let f = 0; f < fc; f++) {
+          const nu = nextUse(ref, frames[f], i);
+          if (nu > farthest) { farthest = nu; victimIdx = f; }
+        }
+        replaced = frames[victimIdx];
+        frames[victimIdx] = page;
+      }
+    }
+    steps.push({ page_ref: page, frame_state: [...frames], is_fault: !hit, replaced_page: replaced });
+  }
+  return { steps, page_faults: faults, hit_ratio: ((ref.length - faults) / ref.length * 100).toFixed(2) };
+}
+
+const SIM_FN = { FIFO: simFIFO, LRU: simLRU, Optimal: simOptimal };
+
+/* ────────────────────────────────────────────
+   UI HELPERS
+   ─────────────────────────────────────────── */
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function setLoading(on) {
+  const btn = document.getElementById('runBtn');
+  const txt = document.getElementById('btnText');
+  const spin = document.getElementById('spinner');
+  btn.disabled = on;
+  txt.style.display = on ? 'none' : 'inline';
+  spin.style.display = on ? 'block' : 'none';
+}
+
+/* ────────────────────────────────────────────
+   RENDER RESULTS
+   ─────────────────────────────────────────── */
+
+function renderResults(ref, frames, results) {
+  const area = document.getElementById('resultsArea');
+  const algos = Object.keys(results);
+
+  // Determine faults per algo for comparison
+  const faultCounts = {};
+  algos.forEach(a => faultCounts[a] = results[a].page_faults);
+  const minFaults = Math.min(...Object.values(faultCounts));
+  const maxFaults = Math.max(...Object.values(faultCounts));
+
+  let html = '';
+
+  /* ── Ref String Visual ── */
+  const firstAlgo = algos[0];
+  html += `<div class="panel fade-in">
+    <div class="panel-head">
+      <div class="dot" style="background:var(--accent)"></div>
+      <h2>Reference String (${ref.length} pages, ${frames} frames)</h2>
+    </div>
+    <div class="panel-body">
+      <div class="ref-display" id="refChips">
+        ${ref.map((p,i) => {
+          const s = results[firstAlgo]?.steps[i];
+          const cls = s ? (s.is_fault ? 'is-fault' : 'is-hit') : '';
+          return `<span class="ref-chip ${cls}" title="Step ${i+1}: ${s?.is_fault?'FAULT':'HIT'}">${p}</span>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:16px;font-family:var(--mono);font-size:0.7rem;color:var(--text3)">
+        <span><span style="color:var(--danger)">■</span> Page Fault (${firstAlgo})</span>
+        <span><span style="color:var(--accent3)">■</span> Page Hit (${firstAlgo})</span>
+      </div>
+    </div>
+  </div>`;
+
+  /* ── Metric Cards ── */
+  html += `<div class="metrics-row fade-in">`;
+  algos.forEach(algo => {
+    const r = results[algo];
+    const c = ALGO_COLORS[algo];
+    const isBest = r.page_faults === minFaults;
+    html += `
+    <div class="metric-card" style="--c:${c}${isBest ? ';border-color:'+c+'40' : ''}">
+      <div class="alg-name">${algo}${isBest ? ' 🏆' : ''}</div>
+      <div class="fault-big">${r.page_faults}</div>
+      <div class="fault-label">Page Faults</div>
+      <div class="hit-bar-bg"><div class="hit-bar-fill" data-pct="${r.hit_ratio}" style="width:0%"></div></div>
+      <div class="hit-pct">Hit Ratio: ${r.hit_ratio}%</div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  /* ── Bar Chart ── */
+  const barMax = Math.max(...algos.map(a => results[a].page_faults), 1);
+  html += `<div class="chart-wrap fade-in">
+    <div class="chart-title">Page Faults Comparison</div>
+    <div class="bar-chart" style="position:relative">`;
+  algos.forEach(algo => {
+    const r = results[algo];
+    const heightPct = (r.page_faults / barMax) * 100;
+    html += `
+      <div class="bar-group" style="position:relative">
+        <div class="bar" data-val="${r.page_faults}"
+          style="background:${ALGO_COLORS[algo]};height:${heightPct}%;box-shadow:0 0 12px ${ALGO_COLORS[algo]}66;min-height:8px">
+        </div>
+        <span class="bar-name">${algo}</span>
+      </div>`;
+  });
+  html += `</div></div>`;
+
+  /* ── Comparison Summary ── */
+  const bestAlgo = algos.reduce((a,b) => results[a].page_faults <= results[b].page_faults ? a : b);
+  const savings  = algos.filter(a=>a!==bestAlgo).map(a=>`${a} by ${results[a].page_faults - results[bestAlgo].page_faults}`).join(', ');
+  html += `<div class="panel fade-in">
+    <div class="panel-head">
+      <div class="dot" style="background:var(--warn)"></div>
+      <h2>Analysis Summary</h2>
+    </div>
+    <div class="panel-body">
+      <div class="compare-row">
+        <div class="compare-card">
+          <div class="cc-label">Best Algorithm</div>
+          <div class="cc-winner" style="color:${ALGO_COLORS[bestAlgo]}">${bestAlgo}</div>
+          <div class="cc-note">${results[bestAlgo].page_faults} faults · ${results[bestAlgo].hit_ratio}% hit ratio</div>
+        </div>
+        <div class="compare-card">
+          <div class="cc-label">Savings over Others</div>
+          <div class="cc-winner" style="color:var(--accent3)">${bestAlgo} beats ${savings || 'N/A'}</div>
+          <div class="cc-note">fewer page faults = better performance</div>
+        </div>
+        <div class="compare-card">
+          <div class="cc-label">Optimal Bound</div>
+          <div class="cc-winner" style="color:var(--opt-c)">${results['Optimal']?.page_faults ?? '—'} faults</div>
+          <div class="cc-note">Theoretical minimum (requires future knowledge)</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  /* ── Step-by-step Tables ── */
+  html += `<div class="algo-tables fade-in">`;
+  algos.forEach(algo => {
+    const r = results[algo];
+    const c = ALGO_COLORS[algo];
+    html += `
+    <div class="table-panel">
+      <div class="table-head">
+        <div class="t-algo" style="color:${c}">${algo}</div>
+        <div class="t-stats">
+          <span style="color:var(--danger)">Faults: ${r.page_faults}</span>
+          <span style="color:var(--accent3)">Hits: ${ref.length - r.page_faults}</span>
+          <span style="color:var(--text2)">Hit%: ${r.hit_ratio}%</span>
+        </div>
+      </div>
+      <div class="table-scroll" style="max-height:340px;overflow-y:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Page</th>
+            ${Array.from({length:frames},(_,i)=>`<th>Frame ${i+1}</th>`).join('')}
+            <th>Status</th>
+            <th>Replaced</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${r.steps.map((s,i) => {
+            const rowClass = s.is_fault ? 'fault-row' : '';
+            const frames_html = s.frame_state.slice(0,frames).map(f => {
+              const isNew = f === s.page_ref && s.is_fault;
+              return `<td><span class="frame-box${isNew?' new-page':''}">${f===EMPTY?'—':f}</span></td>`;
+            }).join('');
+            return `<tr class="${rowClass}">
+              <td class="step-no">${i+1}</td>
+              <td style="font-weight:700;color:${c}">${s.page_ref}</td>
+              ${frames_html}
+              <td>${s.is_fault
+                ? `<span class="fault-badge">F</span>`
+                : `<span class="hit-badge">H</span>`}</td>
+              <td style="color:var(--text3)">${s.replaced_page===EMPTY?'—':s.replaced_page}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  area.innerHTML = html;
+
+  /* Animate hit bars */
+  setTimeout(() => {
+    document.querySelectorAll('.hit-bar-fill').forEach(el => {
+      el.style.width = el.dataset.pct + '%';
+    });
+  }, 100);
+}
+
+/* ────────────────────────────────────────────
+   MAIN SIMULATION RUNNER
+   ─────────────────────────────────────────── */
+
+async function runSimulation() {
+  const refStr  = document.getElementById('refInput').value;
+  const frames  = parseInt(document.getElementById('frameSlider').value);
+  const ref     = parseRef(refStr);
+
+  if (ref.length < 2) return showToast('Reference string needs at least 2 pages', true);
+  if (selectedAlgos.size === 0) return showToast('Select at least one algorithm', true);
+
+  setLoading(true);
+
+  /* Small async yield so UI updates before computation */
+  await new Promise(r => setTimeout(r, 30));
+
+  try {
+    const results = {};
+    for (const algo of selectedAlgos) {
+      results[algo] = SIM_FN[algo](ref, frames);
+    }
+
+    renderResults(ref, frames, results);
+    showToast(`✓ Simulation complete — ${ref.length} refs, ${frames} frames, ${selectedAlgos.size} algorithm(s)`);
+  } catch (e) {
+    showToast('Simulation error: ' + e.message, true);
+    console.error(e);
+  }
+
+  setLoading(false);
+}
+
+/* ── Run on Enter key ── */
+document.getElementById('refInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') runSimulation();
+});
+
+/* ── Auto-run with default on load ── */
+window.addEventListener('load', () => {
+  setTimeout(runSimulation, 300);
+});
+</script>
+</body>
+</html>
